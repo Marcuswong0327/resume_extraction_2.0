@@ -1,180 +1,131 @@
-
-
 import streamlit as st
 import os
 from typing import List, Dict, Any
 
-from pdf_processor import extract_text_from_pdf
+from pdf_processor import extract_text_from_pdf, convert_pdf_to_images
 from word_processor import extract_text_from_docx
 from ai_parser import process_resume, check_ai_credits
 from excel_exporter import export_to_excel, get_export_filename
 
 
-# Page configuration
 st.set_page_config(
-    page_title="Resume Parser & Analyzer 2.0",
+    page_title="Resume Parser & Analyzer",
     page_icon="📄",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS for dark theme with blue accents
 st.markdown("""
 <style>
-    /* Main container styling */
     .stApp {
-        background-color: #0f172a;
+        background-color: #ffffff;
     }
     
-    /* Header styling */
     .main-header {
-        background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
-        padding: 1.5rem 2rem;
-        border-radius: 12px;
-        margin-bottom: 2rem;
-        border: 1px solid #334155;
+        background: #ffffff;
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        border: 1px solid #e0e0e0;
     }
     
     .main-title {
-        color: #f8fafc;
-        font-size: 2rem;
-        font-weight: 700;
+        color: #000000;
+        font-size: 1.5rem;
+        font-weight: 600;
         margin: 0;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
     }
     
     .main-subtitle {
-        color: #94a3b8;
-        font-size: 0.875rem;
+        color: #666666;
+        font-size: 0.75rem;
         margin-top: 0.25rem;
-        font-family: 'JetBrains Mono', monospace;
         text-transform: uppercase;
-        letter-spacing: 0.1em;
+        letter-spacing: 0.05em;
     }
     
-    /* Upload section styling */
     .upload-section {
-        background: #1e293b;
-        border: 2px dashed #334155;
-        border-radius: 12px;
-        padding: 2rem;
+        background: #fafafa;
+        border: 1px dashed #cccccc;
+        border-radius: 8px;
+        padding: 1.5rem;
         text-align: center;
-        transition: all 0.3s ease;
     }
     
     .upload-section:hover {
-        border-color: #3b82f6;
-        background: #1e3a5f20;
+        border-color: #999999;
     }
     
-    /* Results table styling */
     .results-container {
-        background: #1e293b;
-        border-radius: 12px;
-        padding: 1rem;
-        border: 1px solid #334155;
-    }
-    
-    /* Status badges */
-    .status-success {
-        background: #064e3b;
-        color: #6ee7b7;
-        padding: 0.25rem 0.75rem;
-        border-radius: 9999px;
-        font-size: 0.75rem;
-        font-weight: 500;
-    }
-    
-    .status-error {
-        background: #7f1d1d;
-        color: #fca5a5;
-        padding: 0.25rem 0.75rem;
-        border-radius: 9999px;
-        font-size: 0.75rem;
-        font-weight: 500;
-    }
-    
-    .status-ai {
-        background: #1e3a8a;
-        color: #93c5fd;
-        padding: 0.25rem 0.75rem;
-        border-radius: 9999px;
-        font-size: 0.75rem;
-        font-weight: 500;
-    }
-    
-    /* Credit warning */
-    .credit-warning {
-        background: #78350f;
-        border: 1px solid #fbbf24;
+        background: #fafafa;
         border-radius: 8px;
         padding: 1rem;
-        color: #fef3c7;
+        border: 1px solid #e0e0e0;
     }
     
-    /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Custom button styling */
     .stButton > button {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        background: #333333;
         color: white;
         border: none;
-        border-radius: 8px;
+        border-radius: 6px;
         padding: 0.5rem 1.5rem;
-        font-weight: 600;
-        transition: all 0.3s ease;
+        font-weight: 500;
     }
     
     .stButton > button:hover {
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        background: #000000;
     }
     
-    /* Download button */
     .stDownloadButton > button {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        background: #333333;
         color: white;
         border: none;
-        border-radius: 8px;
-        font-weight: 600;
+        border-radius: 6px;
+        font-weight: 500;
     }
     
-    /* File uploader styling */
+    .stDownloadButton > button:hover {
+        background: #000000;
+    }
+    
     .stFileUploader {
-        background: #1e293b;
-        border-radius: 12px;
+        background: #fafafa;
+        border-radius: 8px;
     }
     
     .stFileUploader > div {
         background: transparent !important;
     }
     
-    /* Dataframe styling */
     .stDataFrame {
-        background: #1e293b;
-        border-radius: 8px;
+        background: #ffffff;
+        border-radius: 6px;
     }
     
-    /* Text colors */
     h1, h2, h3, h4, h5, h6 {
-        color: #f8fafc !important;
+        color: #000000 !important;
     }
     
     p, span, label {
-        color: #e2e8f0;
+        color: #333333;
     }
     
-    /* Metrics styling */
     .stMetric {
-        background: #1e293b;
+        background: #fafafa;
         padding: 1rem;
-        border-radius: 8px;
-        border: 1px solid #334155;
+        border-radius: 6px;
+        border: 1px solid #e0e0e0;
+    }
+    
+    .stMetric label {
+        color: #666666 !important;
+    }
+    
+    .stMetric [data-testid="stMetricValue"] {
+        color: #000000 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -188,7 +139,7 @@ def initialize_session_state():
         st.session_state.processing = False
 
 
-def process_file(uploaded_file, api_key: str) -> Dict[str, Any]:
+def process_file(uploaded_file) -> Dict[str, Any]:
     """Process a single uploaded file and extract information."""
     result = {
         'filename': uploaded_file.name,
@@ -201,27 +152,25 @@ def process_file(uploaded_file, api_key: str) -> Dict[str, Any]:
     }
     
     try:
-        # Read file bytes
         file_bytes = uploaded_file.read()
-        uploaded_file.seek(0)  # Reset file pointer
+        uploaded_file.seek(0)
         
-        # Extract text based on file type
         if uploaded_file.name.lower().endswith('.pdf'):
-            text = extract_text_from_pdf(file_bytes)
+            text, is_image_based = extract_text_from_pdf(file_bytes)
+            
+            images = None
+            if is_image_based:
+                images = convert_pdf_to_images(file_bytes, max_pages=1)
+            
+            extraction = process_resume(text, is_image_based, images)
+            
         elif uploaded_file.name.lower().endswith('.docx'):
             text = extract_text_from_docx(file_bytes)
+            extraction = process_resume(text, is_image_based=False, images=None)
         else:
             result['error'] = 'Unsupported file format'
             result['status'] = 'error'
             return result
-        
-        if not text.strip():
-            result['error'] = 'No text could be extracted'
-            result['status'] = 'error'
-            return result
-        
-        # Process with regex and AI fallback
-        extraction = process_resume(text, api_key)
         
         result['name'] = extraction.get('name')
         result['email'] = extraction.get('email')
@@ -229,7 +178,6 @@ def process_file(uploaded_file, api_key: str) -> Dict[str, Any]:
         result['ai_used'] = extraction.get('ai_used', False)
         result['error'] = extraction.get('error')
         
-        # Determine status
         if result['error'] and 'credit' in result['error'].lower():
             result['status'] = 'credit_error'
         elif result['name'] or result['email'] or result['phone']:
@@ -248,7 +196,7 @@ def render_header():
     """Render the application header."""
     st.markdown("""
     <div class="main-header">
-        <h1 class="main-title">📄 Resume Parser & Analyzer 2.0</h1>
+        <p class="main-title">Resume Parser & Analyzer</p>
         <p class="main-subtitle">Extract contact details from resumes</p>
     </div>
     """, unsafe_allow_html=True)
@@ -260,7 +208,6 @@ def render_results_table(results: List[Dict[str, Any]]):
         st.info("No files processed yet. Upload resumes to see results here.")
         return
     
-    # Create displayable data
     table_data = []
     for r in results:
         status_badge = ""
@@ -270,8 +217,6 @@ def render_results_table(results: List[Dict[str, Any]]):
             status_badge = "❌"
         else:
             status_badge = "⚠️"
-        
-        ai_badge = " 🤖" if r.get('ai_used') else ""
         
         table_data.append({
             "Status": status_badge,
@@ -283,7 +228,6 @@ def render_results_table(results: List[Dict[str, Any]]):
             "Error": r.get('error') or ""
         })
     
-    # Display as dataframe
     import pandas as pd
     df = pd.DataFrame(table_data)
     
@@ -307,24 +251,14 @@ def main():
     """Main application entry point."""
     initialize_session_state()
     
-    # Render header
     render_header()
     
-    # Get API key from environment
-    api_key = os.environ.get('CLAUDE_SONNET_API_KEY', '')
+    has_credits, credit_error = check_ai_credits()
     
-    # Check AI credits status
-    has_credits = True
-    credit_error = None
-    if api_key:
-        has_credits, credit_error = check_ai_credits(api_key)
-    
-    # Layout
     col1, col2 = st.columns([2, 1])
     
     with col2:
-        # Stats/Info panel
-        st.markdown("###Processing Status")
+        st.markdown("### Processing Status")
         
         total = len(st.session_state.results)
         successful = sum(1 for r in st.session_state.results if r['status'] == 'success')
@@ -338,39 +272,33 @@ def main():
         with col_c:
             st.metric("AI Used", ai_used)
         
-        # Credit warning
-        if not api_key:
-            st.warning("⚠️ No OpenRouter API key configured. AI fallback is disabled.")
-        elif not has_credits:
-            st.error(f"🚫 {credit_error or 'AI credits unavailable'}")
+        if not has_credits:
+            st.warning(f"⚠️ {credit_error or 'AI features unavailable'}")
     
     with col1:
-        # File uploader
-        st.markdown("### 📁 Upload Resumes")
+        st.markdown("### Upload Resumes")
         
         uploaded_files = st.file_uploader(
             "Drag and drop PDF or DOCX files here",
             type=['pdf', 'docx'],
             accept_multiple_files=True,
-            help="Limit 200MB per file • PDF, DOCX formats supported"
+            help="Limit 200MB per file - PDF, DOCX formats supported"
         )
         
-        # Process button
         col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
         
         with col_btn1:
             process_btn = st.button(
-                "🚀 Extract Data",
+                "Extract Data",
                 disabled=not uploaded_files,
                 use_container_width=True
             )
         
         with col_btn2:
-            if st.button("🗑️ Clear Results", use_container_width=True):
+            if st.button("Clear Results", use_container_width=True):
                 st.session_state.results = []
                 st.rerun()
         
-        # Process files when button clicked
         if process_btn and uploaded_files:
             progress_bar = st.progress(0, text="Processing files...")
             
@@ -378,40 +306,35 @@ def main():
                 progress = (idx + 1) / len(uploaded_files)
                 progress_bar.progress(progress, text=f"Processing {file.name}...")
                 
-                result = process_file(file, api_key)
+                result = process_file(file)
                 st.session_state.results.append(result)
             
             progress_bar.empty()
-            st.success(f"✅ Processed {len(uploaded_files)} files!")
+            st.success(f"Processed {len(uploaded_files)} files!")
             st.rerun()
     
-    # Results section
     st.markdown("---")
-    st.markdown("### 📋 Extraction Results")
+    st.markdown("### Extraction Results")
     
-    # Action buttons
     if st.session_state.results:
         col_dl1, col_dl2 = st.columns([1, 4])
         
         with col_dl1:
-            # Export to Excel
             excel_data = export_to_excel(st.session_state.results)
             st.download_button(
-                label="📥 Download Excel",
+                label="Download Excel",
                 data=excel_data,
                 file_name=get_export_filename(),
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
     
-    # Render results table
     render_results_table(st.session_state.results)
     
-    # Footer
     st.markdown("---")
     st.markdown(
-        "<p style='text-align: center; color: #64748b; font-size: 0.75rem;'>"
-        "Resume Parser & Analyzer • Built with Streamlit"
+        "<p style='text-align: center; color: #999999; font-size: 0.75rem;'>"
+        "Resume Parser & Analyzer"
         "</p>",
         unsafe_allow_html=True
     )
