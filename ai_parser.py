@@ -1,48 +1,51 @@
 """
 AI Parser Module
-Uses regex patterns first, then falls back to OpenRouter Claude Sonnet
-for extraction when regex fails.
+Uses improved regex patterns first, then falls back to Claude Sonnet 4
+via OpenRouter for extraction when regex fails. Supports vision API for image-based resumes.
 """
 
 import re
 import os
+import json
+import base64
 import requests
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
+from PIL import Image
+import io
 
 
-# Regex Patterns
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MODEL = "anthropic/claude-sonnet-4"
+
+
 EMAIL_PATTERN = re.compile(
     r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
     re.IGNORECASE
 )
 
-# Australian phone patterns - flexible to handle various formats
-# Matches: +61 412 345 678, 0412 345 678, 0412-345-678, 04 1234 5678, etc.
 PHONE_PATTERNS = [
-    # +61 format with various separators
-    re.compile(r'\+61\s?[2-478](?:\s?-?\d){8}'),
-    # 04xx format (mobile)
-    re.compile(r'0[45]\d{2}[\s-]?\d{3}[\s-]?\d{3}'),
-    # General Australian format
-    re.compile(r'(?:\+?61|0)\s?[2-478](?:[\s-]?\d){8}'),
-    # Compact format
-    re.compile(r'04\d{8}'),
-    # With country code in parentheses
-    re.compile(r'\(\+?61\)\s?[2-478](?:[\s-]?\d){8}'),
-    # Format like: 0435 860 589 or 0416 851 877
-    re.compile(r'0[2-478]\d{2}\s\d{3}\s\d{3}'),
-    # Format with dots: 0412.345.678
-    re.compile(r'0[2-478]\d{2}[.\s-]?\d{3}[.\s-]?\d{3}'),
+    re.compile(r'(?:Phone:?\s*|Mobile:?\s*|Tel:?\s*|Ph:?\s*)?(\+61\s?[2-9](?:[\s.-]?\d){8})', re.IGNORECASE),
+    re.compile(r'(?:Phone:?\s*|Mobile:?\s*|Tel:?\s*|Ph:?\s*)?(\+61\s?4\d{2}(?:[\s.-]?\d){6})', re.IGNORECASE),
+    re.compile(r'(?:Phone:?\s*|Mobile:?\s*|Tel:?\s*|Ph:?\s*)?(04\d{2}[\s.-]?\d{3}[\s.-]?\d{3})', re.IGNORECASE),
+    re.compile(r'(?:Phone:?\s*|Mobile:?\s*|Tel:?\s*|Ph:?\s*)?(04\d{8})', re.IGNORECASE),
+    re.compile(r'(?:Phone:?\s*|Mobile:?\s*|Tel:?\s*|Ph:?\s*)?(0[2-9]\d{2}[\s.-]?\d{3}[\s.-]?\d{3})', re.IGNORECASE),
+    re.compile(r'(?:Phone:?\s*|Mobile:?\s*|Tel:?\s*|Ph:?\s*)?(0[2-9]\s?\d{4}\s?\d{4})', re.IGNORECASE),
+    re.compile(r'(?:Phone:?\s*|Mobile:?\s*|Tel:?\s*|Ph:?\s*)?(\(\+?61\)\s?[2-9](?:[\s.-]?\d){8})', re.IGNORECASE),
+    re.compile(r'(?:Phone:?\s*|Mobile:?\s*|Tel:?\s*|Ph:?\s*)?(\+61\s?[2-9]\d{8})', re.IGNORECASE),
+    re.compile(r'(?:Phone:?\s*|Mobile:?\s*|Tel:?\s*|Ph:?\s*)?(0[2-9]\d{8})', re.IGNORECASE),
 ]
 
-# Words to skip when looking for names
 SKIP_WORDS = {
     'resume', 'cv', 'curriculum', 'vitae', 'profile', 'summary',
     'objective', 'experience', 'education', 'skills', 'contact',
     'phone', 'email', 'address', 'mobile', 'tel', 'linkedin',
     'github', 'portfolio', 'website', 'references', 'personal',
-    'professional', 'career', 'work', 'employment', 'history'
+    'professional', 'career', 'work', 'employment', 'history',
+    'background', 'overview', 'introduction', 'about', 'me',
+    'certifications', 'certificates', 'training', 'qualifications'
 }
+
+NAME_PREFIXES = {'mr', 'mrs', 'ms', 'miss', 'dr', 'prof', 'sir', 'madam'}
 
 
 def extract_email(text: str) -> Optional[str]:
@@ -56,48 +59,93 @@ def extract_phone(text: str) -> Optional[str]:
     for pattern in PHONE_PATTERNS:
         match = pattern.search(text)
         if match:
-            # Clean up the phone number
-            phone = match.group(0)
-            # Normalize spaces
-            phone = re.sub(r'[\s-]+', ' ', phone).strip()
-            return phone
+            phone = match.group(1) if match.lastindex else match.group(0)
+            phone = re.sub(r'[\s.-]+', ' ', phone).strip()
+            digits_only = re.sub(r'\D', '', phone)
+            if 9 <= len(digits_only) <= 12:
+                return phone
     return None
 
 
 def extract_name(text: str) -> Optional[str]:
     """
-    Extract candidate name using heuristics.
+    Extract candidate name using improved heuristics.
     Name is usually the first prominent text in a resume.
     """
     lines = text.split('\n')
     
-    for line in lines[:10]:  # Check first 10 lines
+    for line in lines[:15]:
         line = line.strip()
         
-        # Skip empty lines
-        if not line:
+        if not line or len(line) < 3:
             continue
         
-        # Skip lines with common section headers
         lower_line = line.lower()
-        if any(skip in lower_line for skip in SKIP_WORDS):
+        
+        skip = False
+        for skip_word in SKIP_WORDS:
+            if lower_line == skip_word or lower_line.startswith(skip_word + ':') or lower_line.startswith(skip_word + ' '):
+                if not any(c.isupper() for c in line[len(skip_word):].strip()[:1]):
+                    skip = True
+                    break
+        if skip:
             continue
         
-        # Skip lines with email or phone
-        if '@' in line or re.search(r'\d{4,}', line):
+        if '@' in line:
             continue
         
-        # Skip lines that are too long (likely descriptions)
-        if len(line) > 50:
+        digit_count = sum(c.isdigit() for c in line)
+        if digit_count > 3:
             continue
         
-        # Check if line looks like a name (2-4 capitalized words)
-        words = line.split()
-        if 1 <= len(words) <= 4:
-            # Check if words look like names (capitalized, alphabetic)
-            if all(word[0].isupper() and word.replace('-', '').replace("'", '').isalpha() 
-                   for word in words if len(word) > 1):
-                return line
+        if len(line) > 60:
+            continue
+        
+        cleaned_line = line
+        for prefix in NAME_PREFIXES:
+            if lower_line.startswith(prefix + ' ') or lower_line.startswith(prefix + '.'):
+                cleaned_line = line[len(prefix):].strip()
+                if cleaned_line.startswith('.'):
+                    cleaned_line = cleaned_line[1:].strip()
+                break
+        
+        words = cleaned_line.split()
+        if 1 <= len(words) <= 5:
+            valid_words = []
+            for word in words:
+                clean_word = word.replace('-', '').replace("'", '').replace('.', '')
+                if clean_word and clean_word[0].isupper() and clean_word.isalpha():
+                    valid_words.append(word)
+                elif clean_word.isupper() and len(clean_word) > 1:
+                    valid_words.append(word)
+            
+            if len(valid_words) >= 1 and len(valid_words) == len(words):
+                return cleaned_line
+    
+    return None
+
+
+def extract_name_from_email(email: str) -> Optional[str]:
+    """
+    Try to extract a name from an email address.
+    e.g., john.doe@email.com -> John Doe
+    """
+    if not email:
+        return None
+    
+    local_part = email.split('@')[0]
+    
+    local_part = re.sub(r'\d+', '', local_part)
+    
+    parts = re.split(r'[._-]', local_part)
+    
+    name_parts = []
+    for part in parts:
+        if len(part) > 1:
+            name_parts.append(part.capitalize())
+    
+    if len(name_parts) >= 2:
+        return ' '.join(name_parts)
     
     return None
 
@@ -109,33 +157,54 @@ def extract_with_regex(text: str) -> Dict[str, Optional[str]]:
     Returns:
         Dictionary with 'name', 'email', 'phone' keys
     """
+    email = extract_email(text)
+    phone = extract_phone(text)
+    name = extract_name(text)
+    
+    if not name and email:
+        name = extract_name_from_email(email)
+    
     return {
-        'name': extract_name(text),
-        'email': extract_email(text),
-        'phone': extract_phone(text)
+        'name': name,
+        'email': email,
+        'phone': phone
     }
 
 
-def extract_with_ai(text: str, api_key: str) -> Tuple[Dict[str, Optional[str]], bool, Optional[str]]:
+def get_api_key() -> Optional[str]:
+    """Get OpenRouter API key from environment."""
+    return os.environ.get('CLAUDE_SONNET_API_KEY')
+
+
+def extract_with_ai_text(text: str) -> Tuple[Dict[str, Optional[str]], bool, Optional[str]]:
     """
-    Extract information using OpenRouter Claude Sonnet API.
+    Extract information using Claude Sonnet 4 via OpenRouter API for text.
     
     Args:
         text: Resume text to analyze
-        api_key: OpenRouter API key
         
     Returns:
         Tuple of (extracted_data, success, error_message)
     """
+    api_key = get_api_key()
     if not api_key:
-        return {}, False, "No API key provided"
+        return {}, False, "No API key configured"
     
-    # Truncate text to avoid token limits
-    text_truncated = text[:4000] if len(text) > 4000 else text
+    text_truncated = text[:6000] if len(text) > 6000 else text
     
-    prompt = f"""Analyze this resume text and extract the following information. 
+    prompt = f"""Analyze this resume text and extract the following information.
 Return ONLY a JSON object with these exact keys: "name", "email", "phone"
 If any field cannot be found, use null for that field.
+
+For the name field:
+- Extract the full name of the candidate (first name and last name)
+- Remove any prefixes like Mr, Mrs, Ms, Dr
+- If the name has "MR JAMES HOMANS" format, extract as "James Homans"
+
+For the phone field:
+- Extract the phone number in its original format
+- Australian mobile numbers typically start with 04
+- Include country code if present
 
 Resume text:
 {text_truncated}
@@ -144,14 +213,14 @@ Return ONLY the JSON object, no other text."""
 
     try:
         response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            OPENROUTER_API_URL,
             headers={
-                "Authorization": f"Bearer {CLAUDE_SONNET_API_KEY}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
                 "X-Title": "Resume Parser"
             },
             json={
-                "model": "anthropic/claude-sonnet-4",
+                "model": OPENROUTER_MODEL,
                 "messages": [
                     {"role": "user", "content": prompt}
                 ],
@@ -161,7 +230,6 @@ Return ONLY the JSON object, no other text."""
             timeout=30
         )
         
-        # Check for credit/rate limit errors
         if response.status_code == 402:
             return {}, False, "Insufficient AI credits"
         elif response.status_code == 429:
@@ -172,11 +240,7 @@ Return ONLY the JSON object, no other text."""
         result = response.json()
         content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
         
-        # Parse JSON from response
-        import json
-        # Try to extract JSON from the response
         try:
-            # Handle case where response has markdown code blocks
             if '```' in content:
                 content = content.split('```')[1]
                 if content.startswith('json'):
@@ -190,7 +254,6 @@ Return ONLY the JSON object, no other text."""
             }, True, None
             
         except json.JSONDecodeError:
-            # Try to extract with regex as fallback
             return {}, False, "Failed to parse AI response"
             
     except requests.exceptions.Timeout:
@@ -199,52 +262,129 @@ Return ONLY the JSON object, no other text."""
         return {}, False, f"AI request failed: {str(e)}"
 
 
-def check_ai_credits(api_key: str) -> Tuple[bool, Optional[str]]:
+def extract_with_ai_vision(images: List[Image.Image]) -> Tuple[Dict[str, Optional[str]], bool, Optional[str]]:
     """
-    Check if the API key has available credits.
+    Extract information using Claude Sonnet 4 Vision via OpenRouter API for image-based resumes.
+    
+    Args:
+        images: List of PIL Image objects (resume pages)
+        
+    Returns:
+        Tuple of (extracted_data, success, error_message)
+    """
+    api_key = get_api_key()
+    if not api_key:
+        return {}, False, "No API key configured"
+    
+    if not images:
+        return {}, False, "No images provided"
+    
+    try:
+        image_contents = []
+        for img in images[:1]:
+            buffered = io.BytesIO()
+            img.save(buffered, format="PNG")
+            img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            
+            image_contents.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{img_base64}"
+                }
+            })
+        
+        image_contents.append({
+            "type": "text",
+            "text": """Analyze this resume image and extract the following information.
+Return ONLY a JSON object with these exact keys: "name", "email", "phone"
+If any field cannot be found, use null for that field.
+
+For the name field:
+- Extract the full name of the candidate (first name and last name)
+- Remove any prefixes like Mr, Mrs, Ms, Dr
+- If the name appears as "MR JAMES HOMANS", extract as "James Homans"
+
+For the phone field:
+- Extract the phone number in its original format
+- Australian mobile numbers typically start with 04
+- Include country code if present
+
+Return ONLY the JSON object, no other text."""
+        })
+        
+        response = requests.post(
+            OPENROUTER_API_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "X-Title": "Resume Parser"
+            },
+            json={
+                "model": OPENROUTER_MODEL,
+                "messages": [
+                    {"role": "user", "content": image_contents}
+                ],
+                "max_tokens": 500,
+                "temperature": 0
+            },
+            timeout=60
+        )
+        
+        if response.status_code == 402:
+            return {}, False, "Insufficient AI credits"
+        elif response.status_code == 429:
+            return {}, False, "AI rate limit exceeded"
+        elif response.status_code != 200:
+            return {}, False, f"AI API error: {response.status_code}"
+        
+        result = response.json()
+        content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+        
+        try:
+            if '```' in content:
+                content = content.split('```')[1]
+                if content.startswith('json'):
+                    content = content[4:]
+            
+            data = json.loads(content.strip())
+            return {
+                'name': data.get('name'),
+                'email': data.get('email'),
+                'phone': data.get('phone')
+            }, True, None
+            
+        except json.JSONDecodeError:
+            return {}, False, "Failed to parse AI response"
+            
+    except requests.exceptions.Timeout:
+        return {}, False, "AI vision request timed out"
+    except requests.exceptions.RequestException as e:
+        return {}, False, f"AI vision request failed: {str(e)}"
+
+
+def check_ai_credits() -> Tuple[bool, Optional[str]]:
+    """
+    Check if the API key is configured.
     
     Returns:
         Tuple of (has_credits, error_message)
     """
+    api_key = get_api_key()
     if not api_key:
         return False, "No API key configured"
     
-    try:
-        # Make a minimal request to check credits
-        response = requests.get(
-            "https://openrouter.ai/api/v1/auth/key",
-            headers={
-                "Authorization": f"Bearer {CLAUDE_SONNET_API_KEY}",
-            },
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            # Check if there are remaining credits
-            limit = data.get('data', {}).get('limit')
-            usage = data.get('data', {}).get('usage', 0)
-            
-            if limit is not None and usage >= limit:
-                return False, "AI credit limit reached"
-            
-            return True, None
-        elif response.status_code == 401:
-            return False, "Invalid API key"
-        else:
-            return True, None  # Assume has credits if we can't check
-            
-    except:
-        return True, None  # Assume has credits if check fails
+    return True, None
 
 
-def process_resume(text: str, api_key: Optional[str] = None) -> Dict[str, Any]:
+def process_resume(text: str, is_image_based: bool = False, images: Optional[List[Image.Image]] = None) -> Dict[str, Any]:
     """
-    Process resume text: try regex first, fallback to AI if needed.
+    Process resume: try regex first, fallback to AI if needed.
+    For image-based PDFs, use vision API directly.
     
     Args:
         text: Resume text
-        api_key: Optional OpenRouter API key for AI fallback
+        is_image_based: Whether this is an image-based resume
+        images: List of PIL Image objects for vision processing
         
     Returns:
         Dictionary with extraction results and metadata
@@ -257,23 +397,38 @@ def process_resume(text: str, api_key: Optional[str] = None) -> Dict[str, Any]:
         'error': None
     }
     
-    # Step 1: Try regex extraction
-    regex_result = extract_with_regex(text)
-    result.update(regex_result)
-    
-    # Step 2: If any field is missing, try AI
-    missing_fields = [k for k in ['name', 'email', 'phone'] if not result[k]]
-    
-    if missing_fields and api_key:
-        ai_result, success, error = extract_with_ai(text, api_key)
+    if is_image_based and images:
+        ai_result, success, error = extract_with_ai_vision(images)
         
         if success:
             result['ai_used'] = True
-            # Fill in missing fields from AI
-            for field in missing_fields:
-                if ai_result.get(field):
-                    result[field] = ai_result[field]
-        elif error:
+            result['name'] = ai_result.get('name')
+            result['email'] = ai_result.get('email')
+            result['phone'] = ai_result.get('phone')
+        else:
             result['error'] = error
+        
+        return result
+    
+    regex_result = extract_with_regex(text)
+    result.update(regex_result)
+    
+    missing_fields = [k for k in ['name', 'email', 'phone'] if not result[k]]
+    
+    if missing_fields:
+        has_credits, credit_error = check_ai_credits()
+        
+        if has_credits:
+            ai_result, success, error = extract_with_ai_text(text)
+            
+            if success:
+                result['ai_used'] = True
+                for field in missing_fields:
+                    if ai_result.get(field):
+                        result[field] = ai_result[field]
+            elif error:
+                result['error'] = error
+        elif credit_error and not result['name'] and not result['email'] and not result['phone']:
+            result['error'] = credit_error
     
     return result
