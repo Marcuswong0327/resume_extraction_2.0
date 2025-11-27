@@ -518,9 +518,9 @@ def main():
         
         uploaded_files = st.file_uploader(
             "Drag and drop files here",
-            type=['pdf', 'docx', 'rtf', 'txt'],
+            type=['pdf', 'docx'],
             accept_multiple_files=True,
-            help="Limit 200MB per file • PDF, DOCX, RTF, TXT",
+            help="Limit 200MB per file • PDF, DOCX",
             label_visibility="collapsed"
         )
         
