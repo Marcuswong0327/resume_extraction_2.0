@@ -22,7 +22,6 @@ def extract_text_from_docx(file_bytes: bytes) -> str:
             if text:
                 paragraphs.append(text)
         
-        # Also extract from tables (some resumes use tables for layout)
         for table in doc.tables:
             for row in table.rows:
                 for cell in row.cells:
@@ -62,9 +61,8 @@ def get_top_section_text(file_bytes: bytes, max_paragraphs: int = 15) -> str:
                 if count >= max_paragraphs:
                     break
         
-        # Also check first table if exists
         if doc.tables:
-            for row in doc.tables[0].rows[:5]:  # First 5 rows only
+            for row in doc.tables[0].rows[:5]:
                 for cell in row.cells:
                     text = cell.text.strip()
                     if text and text not in paragraphs:
