@@ -5,13 +5,7 @@ import io
 def extract_text_from_docx(file_bytes: bytes) -> str:
     """
     Extract text from DOCX file bytes.
-    Processes all paragraphs but focuses on structure preservation.
-    
-    Args:
-        file_bytes: DOCX file content as bytes
-        
-    Returns:
-        Extracted text string
+    Processes all paragraphs and tables.
     """
     try:
         doc = Document(io.BytesIO(file_bytes))
@@ -36,17 +30,7 @@ def extract_text_from_docx(file_bytes: bytes) -> str:
 
 
 def get_top_section_text(file_bytes: bytes, max_paragraphs: int = 15) -> str:
-    """
-    Get only the top section text for faster processing.
-    Contact info is usually in the first few paragraphs.
-    
-    Args:
-        file_bytes: DOCX file content as bytes
-        max_paragraphs: Maximum number of paragraphs to extract
-        
-    Returns:
-        Top section text string
-    """
+    """Get only the top section text for faster processing."""
     try:
         doc = Document(io.BytesIO(file_bytes))
         
