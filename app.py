@@ -206,10 +206,6 @@ def get_file_type(filename: str) -> str:
         return 'pdf'
     elif lower.endswith('.docx'):
         return 'docx'
-    elif lower.endswith('.rtf'):
-        return 'rtf'
-    elif lower.endswith('.txt'):
-        return 'txt'
     return 'unknown'
 
 
@@ -332,7 +328,6 @@ def render_header():
     
     with col1:
         st.markdown('<p class="main-title">📄 Resume Parser & Analyzer</p>', unsafe_allow_html=True)
-        st.markdown('<p class="subtitle">💰 Road to Million Biller!!!</p>', unsafe_allow_html=True)
     
     with col2:
         st.markdown("""
@@ -341,9 +336,9 @@ def render_header():
                 <circle cx="50" cy="50" r="45" fill="#3b82f6"/>
                 <text x="50" y="58" text-anchor="middle" fill="white" font-size="28" font-weight="bold">L</text>
             </svg>
-            <span class="linktal-text" style="display: inline-block; vertical-align: middle;">Linktal</span>
+            <span class="linktal-text" style="display: inline-block; vertical-align: middle;">""</span>
         </div>
-        <p class="processing-status" style="text-align: right;">Processing Status</p>
+        <p class="processing-status" style="text-align: right;">""</p>
         """, unsafe_allow_html=True)
 
 
@@ -357,7 +352,7 @@ def render_batch_status():
     if not st.session_state.batch_status:
         return
     
-    with st.expander("📊 Batch Processing History", expanded=False):
+    with st.expander("📊Processing ", expanded=False):
         for status in st.session_state.batch_status[-30:]:
             safe_filename = html.escape(status.get('filename', 'Unknown'))
             status_type = status.get('status', 'unknown')
@@ -448,7 +443,7 @@ def render_upload_preview(uploaded_files):
     if not uploaded_files:
         return
     
-    with st.expander("📝 Preview Uploaded Files (Before Extraction)", expanded=True):
+    with st.expander("📝 Preview", expanded=True):
         file_names = [f.name for f in uploaded_files]
         selected = st.selectbox("Select file to preview", file_names, key="upload_preview_select")
         
