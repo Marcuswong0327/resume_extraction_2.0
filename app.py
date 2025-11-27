@@ -346,6 +346,7 @@ def main():
         st.markdown("### 📁 Upload Resumes")
         
         uploaded_files = st.file_uploader(
+            "Drag n Drop Files",
             type=['pdf', 'docx'],
             accept_multiple_files=True,
             help="Limit 200MB per file | PDF, DOCX formats supported"
