@@ -115,7 +115,7 @@ st.markdown("""
     
     /* Custom button styling */
     .stButton > button {
-        background: #10B981;
+        background: #6366F1;
         color: white;
         border: none;
         border-radius: 8px;
