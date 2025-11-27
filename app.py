@@ -26,7 +26,7 @@ st.markdown("""
     
     /* Header styling */
     .main-header {
-        background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
+        background: #0f172a;
         padding: 1.5rem 2rem;
         border-radius: 12px;
         margin-bottom: 2rem;
@@ -111,14 +111,11 @@ st.markdown("""
         padding: 1rem;
         color: #fef3c7;
     }
-    
-    /* Hide Streamlit branding */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
+
     
     /* Custom button styling */
     .stButton > button {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        background: #10B981;
         color: white;
         border: none;
         border-radius: 8px;
