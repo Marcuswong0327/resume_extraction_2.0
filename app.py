@@ -18,11 +18,11 @@ st.set_page_config(
 st.markdown("""
 <style>
     .stApp {
-        background-color: #ffffff;
+        background-color: #000000;
     }
     
     .main-header {
-        background: #ffffff;
+        background: #000000;
         padding: 1rem 1.5rem;
         border-radius: 8px;
         margin-bottom: 1.5rem;
@@ -76,7 +76,7 @@ st.markdown("""
     }
     
     .stButton > button:hover {
-        background: #000000;
+        background: #ffffff;
     }
     
     .stDownloadButton > button {
@@ -88,7 +88,7 @@ st.markdown("""
     }
     
     .stDownloadButton > button:hover {
-        background: #000000;
+        background: #ffffff;
     }
     
     .stFileUploader {
@@ -101,12 +101,12 @@ st.markdown("""
     }
     
     .stDataFrame {
-        background: #ffffff;
+        background: #000000;
         border-radius: 6px;
     }
     
     h1, h2, h3, h4, h5, h6 {
-        color: #000000 !important;
+        color: #ffffff !important;
     }
     
     p, span, label {
@@ -125,7 +125,7 @@ st.markdown("""
     }
     
     .stMetric [data-testid="stMetricValue"] {
-        color: #000000 !important;
+        color: #ffffff !important;
     }
 </style>
 """, unsafe_allow_html=True)
