@@ -59,7 +59,6 @@ st.markdown("""
         border-radius: 12px;
         padding: 2rem;
         text-align: center;
-        transition: all 0.3s ease;
     }
     
     .upload-section:hover {
@@ -123,10 +122,6 @@ st.markdown("""
         font-weight: 600;
     }
     
-    .stButton > button:hover {
-        background: #334155;
-        transform: translateY(-1px);
-    }
     
     /* Download button */
     .stDownloadButton > button {
