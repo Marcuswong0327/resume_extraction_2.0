@@ -1,8 +1,7 @@
 """
 AI Parser Module
-Uses Claude Sonnet 4 via OpenRouter for name extraction.
-Uses regex for email, and regex + AI validation for phone numbers.
-Includes confidence scores for all extracted fields.
+Uses regex patterns first, then falls back to OpenRouter Claude Sonnet 4
+for extraction when regex fails.
 """
 
 import re
@@ -12,143 +11,143 @@ import requests
 from typing import Optional, Dict, Any, Tuple
 
 
+# Regex Patterns
 EMAIL_PATTERN = re.compile(
     r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
     re.IGNORECASE
 )
 
+# Australian phone patterns - flexible to handle various formats
+# Matches: +61 412 345 678, 0412 345 678, 0412-345-678, 04 1234 5678, etc.
 PHONE_PATTERNS = [
-    re.compile(r'\+61\s?4\d{2}[\s-]?\d{3}[\s-]?\d{3}'),
-    re.compile(r'04\d{2}[\s-]?\d{3}[\s-]?\d{3}'),
+    # +61 format with various separators
+    re.compile(r'\+61\s?[2-478](?:\s?-?\d){8}'),
+    # 04xx format (mobile)
+    re.compile(r'0[45]\d{2}[\s-]?\d{3}[\s-]?\d{3}'),
+    # General Australian format
+    re.compile(r'(?:\+?61|0)\s?[2-478](?:[\s-]?\d){8}'),
+    # Compact format
     re.compile(r'04\d{8}'),
-    re.compile(r'\+61\s?[2-478][\s-]?\d{4}[\s-]?\d{4}'),
-    re.compile(r'0[2-478][\s-]?\d{4}[\s-]?\d{4}'),
-    re.compile(r'\(\+?61\)\s?4\d{2}[\s-]?\d{3}[\s-]?\d{3}'),
-    re.compile(r'\+61\s?4\d{2}\s?\d{3}\s?\d{3}'),
-    re.compile(r'04\d{2}\s\d{3}\s\d{3}'),
-    re.compile(r'\+?1?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}'),
-    re.compile(r'\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}'),
+    # With country code in parentheses
+    re.compile(r'\(\+?61\)\s?[2-478](?:[\s-]?\d){8}'),
+    # Format like: 0435 860 589 or 0416 851 877
+    re.compile(r'0[2-478]\d{2}\s\d{3}\s\d{3}'),
+    # Format with dots: 0412.345.678
+    re.compile(r'0[2-478]\d{2}[.\s-]?\d{3}[.\s-]?\d{3}'),
 ]
 
-PHONE_CONTEXT_KEYWORDS = [
-    'phone', 'mobile', 'cell', 'tel', 'contact', 'call', 'mob', 'ph'
-]
-
-REFERENCE_KEYWORDS = [
-    'reference', 'referee', 'supervisor', 'manager', 'employer', 'contact person',
-    'reporting to', 'reports to', 'superior', 'boss', 'hr', 'human resource'
-]
-
-
-def extract_email(text: str) -> Tuple[Optional[str], float, str]:
-    """
-    Extract first valid email address from text using regex.
-    Returns: (email, confidence, method)
-    """
-    emails = EMAIL_PATTERN.findall(text)
-    
-    for email in emails:
-        if any(x in email.lower() for x in ['example.com', 'test.com', 'sample.']):
-            continue
-        
-        parts = email.split('@')
-        if len(parts) == 2 and '.' in parts[1]:
-            domain_parts = parts[1].split('.')
-            if len(domain_parts[-1]) >= 2:
-                lines = text.split('\n')
-                for i, line in enumerate(lines):
-                    if email.lower() in line.lower():
-                        if i < 15:
-                            return email, 0.95, 'regex'
-                        else:
-                            return email, 0.8, 'regex'
-                return email, 0.85, 'regex'
-    
-    if emails:
-        return emails[0], 0.6, 'regex'
-    return None, 0.0, 'regex'
+# Words to skip when looking for names
+SKIP_WORDS = {
+    'resume', 'cv', 'curriculum', 'vitae', 'profile', 'summary',
+    'objective', 'experience', 'education', 'skills', 'contact',
+    'phone', 'email', 'address', 'mobile', 'tel', 'linkedin',
+    'github', 'portfolio', 'website', 'references', 'personal',
+    'professional', 'career', 'work', 'employment', 'history'
+}
 
 
-def extract_phone_candidates(text: str) -> list:
-    """Extract all potential phone numbers from text."""
-    candidates = []
+def extract_email(text: str) -> Optional[str]:
+    """Extract first email address from text."""
+    match = EMAIL_PATTERN.search(text)
+    return match.group(0) if match else None
+
+
+def extract_phone(text: str) -> Optional[str]:
+    """Extract first phone number from text using multiple patterns."""
     for pattern in PHONE_PATTERNS:
-        matches = pattern.findall(text)
-        for match in matches:
-            phone = re.sub(r'[\s-]+', ' ', match).strip()
-            if phone not in candidates:
-                candidates.append(phone)
-    return candidates
+        match = pattern.search(text)
+        if match:
+            # Clean up the phone number
+            phone = match.group(0)
+            # Normalize spaces
+            phone = re.sub(r'[\s-]+', ' ', phone).strip()
+            return phone
+    return None
 
 
-def is_candidate_phone(text: str, phone: str) -> Tuple[bool, float]:
+def extract_name(text: str) -> Optional[str]:
     """
-    Check if a phone number is likely the candidate's personal phone.
-    Returns: (is_candidate, confidence)
+    Extract candidate name using heuristics.
+    Name is usually the first prominent text in a resume.
     """
     lines = text.split('\n')
-    phone_normalized = re.sub(r'[\s\-\(\)\+]', '', phone)
     
-    for i, line in enumerate(lines):
-        line_normalized = re.sub(r'[\s\-\(\)\+]', '', line)
-        if phone_normalized in line_normalized:
-            context_start = max(0, i - 3)
-            context_end = min(len(lines), i + 2)
-            context = ' '.join(lines[context_start:context_end]).lower()
-            
-            if any(ref_kw in context for ref_kw in REFERENCE_KEYWORDS):
-                return False, 0.15
-            
-            if i < 10:
-                if any(kw in context for kw in PHONE_CONTEXT_KEYWORDS):
-                    return True, 0.85
-                return True, 0.7
-            elif i < 15:
-                return True, 0.55
-                
-    return True, 0.4
+    for line in lines[:10]:  # Check first 10 lines
+        line = line.strip()
+        
+        # Skip empty lines
+        if not line:
+            continue
+        
+        # Skip lines with common section headers
+        lower_line = line.lower()
+        if any(skip in lower_line for skip in SKIP_WORDS):
+            continue
+        
+        # Skip lines with email or phone
+        if '@' in line or re.search(r'\d{4,}', line):
+            continue
+        
+        # Skip lines that are too long (likely descriptions)
+        if len(line) > 50:
+            continue
+        
+        # Check if line looks like a name (2-4 capitalized words)
+        words = line.split()
+        if 1 <= len(words) <= 4:
+            # Check if words look like names (capitalized, alphabetic)
+            if all(word[0].isupper() and word.replace('-', '').replace("'", '').isalpha() 
+                   for word in words if len(word) > 1):
+                return line
+    
+    return None
 
 
-def extract_phone_with_context(text: str) -> Tuple[Optional[str], float, str]:
+def extract_with_regex(text: str) -> Dict[str, Optional[str]]:
     """
-    Extract phone number that is likely the candidate's own number.
-    Returns: (phone, confidence, method)
+    Extract name, email, and phone using regex patterns.
+    
+    Returns:
+        Dictionary with 'name', 'email', 'phone' keys
     """
-    candidates = extract_phone_candidates(text)
-    
-    best_phone = None
-    best_confidence = 0.0
-    
-    for phone in candidates:
-        is_candidate, confidence = is_candidate_phone(text, phone)
-        if is_candidate and confidence > best_confidence:
-            best_phone = phone
-            best_confidence = confidence
-    
-    if best_phone:
-        return best_phone, best_confidence, 'regex'
-    
-    return candidates[0] if candidates else None, 0.35 if candidates else 0.0, 'regex'
+    return {
+        'name': extract_name(text),
+        'email': extract_email(text),
+        'phone': extract_phone(text)
+    }
 
 
-def extract_name_with_ai(text: str, api_key: str) -> Tuple[Optional[str], float, bool, Optional[str]]:
+def extract_with_ai(text: str, api_key: str, missing_fields: list) -> Tuple[Dict[str, Optional[str]], bool, Optional[str]]:
     """
-    Extract candidate name using Claude Sonnet 4 via OpenRouter.
-    Returns: (name, confidence, success, error)
+    Extract information using OpenRouter Claude Sonnet 4 API.
+    Only extracts the specified missing fields.
+    
+    Args:
+        text: Resume text to analyze
+        api_key: OpenRouter API key
+        missing_fields: List of fields that need AI extraction
+        
+    Returns:
+        Tuple of (extracted_data, success, error_message)
     """
     if not api_key:
-        return None, 0.0, False, "No API key provided"
+        return {}, False, "No API key provided"
     
-    text_truncated = text[:3000] if len(text) > 3000 else text
+    # Truncate text to avoid token limits
+    text_truncated = text[:4000] if len(text) > 4000 else text
     
-    prompt = f"""Analyze this resume text and extract ONLY the candidate's full name.
-The name is usually at the very top of the resume, often in a larger font or as a heading.
-Do NOT include job titles, degrees, or any other text.
+    # Build dynamic prompt based on missing fields
+    fields_to_extract = ", ".join(f'"{f}"' for f in missing_fields)
+    
+    prompt = f"""Analyze this resume text and extract the following information: {fields_to_extract}
+
+Return ONLY a JSON object with these exact keys: {fields_to_extract}
+If any field cannot be found, use null for that field.
 
 Resume text:
 {text_truncated}
 
-Return ONLY the candidate's full name, nothing else. If you cannot find the name, return "NOT_FOUND"."""
+Return ONLY the JSON object, no other text or explanation."""
 
     try:
         response = requests.post(
@@ -163,126 +162,58 @@ Return ONLY the candidate's full name, nothing else. If you cannot find the name
                 "messages": [
                     {"role": "user", "content": prompt}
                 ],
-                "max_tokens": 100,
+                "max_tokens": 500,
                 "temperature": 0
             },
             timeout=30
         )
         
+        # Check for credit/rate limit errors
         if response.status_code == 402:
-            return None, 0.0, False, "Insufficient AI credits"
+            return {}, False, "Insufficient AI credits"
         elif response.status_code == 429:
-            return None, 0.0, False, "AI rate limit exceeded"
+            return {}, False, "AI rate limit exceeded"
         elif response.status_code != 200:
-            return None, 0.0, False, f"AI API error: {response.status_code}"
+            return {}, False, f"AI API error: {response.status_code}"
         
         result = response.json()
-        content = result.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+        content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
         
-        if content and content != "NOT_FOUND":
-            content = content.strip('"\'')
-            if len(content) < 100 and not any(kw in content.lower() for kw in ['resume', 'cv', 'curriculum']):
-                words = content.split()
-                if 2 <= len(words) <= 4:
-                    confidence = 0.92
-                elif len(words) == 1:
-                    confidence = 0.65
-                else:
-                    confidence = 0.55
-                return content, confidence, True, None
-        
-        return None, 0.0, False, "Could not extract name"
+        # Parse JSON from response
+        try:
+            # Handle case where response has markdown code blocks
+            if '```' in content:
+                content = content.split('```')[1]
+                if content.startswith('json'):
+                    content = content[4:]
+            
+            data = json.loads(content.strip())
+            extracted = {}
+            for field in missing_fields:
+                extracted[field] = data.get(field)
+            return extracted, True, None
+            
+        except json.JSONDecodeError:
+            return {}, False, "Failed to parse AI response"
             
     except requests.exceptions.Timeout:
-        return None, 0.0, False, "AI request timed out"
+        return {}, False, "AI request timed out"
     except requests.exceptions.RequestException as e:
-        return None, 0.0, False, f"AI request failed: {str(e)}"
+        return {}, False, f"AI request failed: {str(e)}"
 
 
-def extract_phone_with_ai(text: str, api_key: str, regex_phone: Optional[str] = None, 
-                          regex_confidence: float = 0.0) -> Tuple[Optional[str], float, bool, Optional[str]]:
+def check_ai_available(api_key: str) -> Tuple[bool, Optional[str]]:
     """
-    Extract/validate candidate's phone number using Claude Sonnet 4.
-    Returns: (phone, confidence, ai_used, error)
+    Check if the OpenRouter API key is available.
+    
+    Returns:
+        Tuple of (is_available, error_message)
     """
-    if not api_key:
-        return regex_phone, regex_confidence, False, None
-    
-    text_truncated = text[:3000] if len(text) > 3000 else text
-    
-    prompt = f"""Analyze this resume text and extract ONLY the candidate's personal phone number.
-
-IMPORTANT: 
-- Extract the candidate's OWN phone number, NOT their reference's, supervisor's, or previous employer's phone
-- The candidate's phone is usually at the top of the resume in the contact section
-- Ignore any phone numbers in the "References" section or next to reference names
-- Return the phone number in its original format
-
-Resume text:
-{text_truncated}
-
-Return ONLY the candidate's phone number, nothing else. If you cannot find it or are unsure, return "NOT_FOUND"."""
-
-    try:
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-                "X-Title": "Resume Parser"
-            },
-            json={
-                "model": "anthropic/claude-sonnet-4",
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
-                "max_tokens": 50,
-                "temperature": 0
-            },
-            timeout=30
-        )
-        
-        if response.status_code == 402:
-            return regex_phone, regex_confidence, False, "Insufficient AI credits"
-        elif response.status_code == 429:
-            return regex_phone, regex_confidence, False, "AI rate limit exceeded"
-        elif response.status_code != 200:
-            return regex_phone, regex_confidence, False, f"AI API error: {response.status_code}"
-        
-        result = response.json()
-        content = result.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
-        
-        if content and content != "NOT_FOUND":
-            content = content.strip('"\'')
-            phone_match = re.search(r'[\d\s\-\+\(\)]{8,}', content)
-            if phone_match:
-                ai_phone = phone_match.group(0).strip()
-                if regex_phone:
-                    regex_normalized = re.sub(r'[\s\-\(\)\+]', '', regex_phone)
-                    ai_normalized = re.sub(r'[\s\-\(\)\+]', '', ai_phone)
-                    if regex_normalized == ai_normalized:
-                        return regex_phone, 0.95, True, None
-                    else:
-                        return ai_phone, 0.88, True, None
-                return ai_phone, 0.88, True, None
-        
-        if regex_phone:
-            return regex_phone, regex_confidence, False, None
-        
-        return None, 0.0, False, None
-            
-    except requests.exceptions.Timeout:
-        return regex_phone, regex_confidence, False, "AI request timed out"
-    except requests.exceptions.RequestException as e:
-        return regex_phone, regex_confidence, False, f"AI request failed: {str(e)}"
-
-
-def check_ai_credits(api_key: str) -> Tuple[bool, Optional[str]]:
-    """Check if the API key has available credits."""
     if not api_key:
         return False, "No API key configured"
     
     try:
+        # Make a minimal request to check credits
         response = requests.get(
             "https://openrouter.ai/api/v1/auth/key",
             headers={
@@ -293,6 +224,7 @@ def check_ai_credits(api_key: str) -> Tuple[bool, Optional[str]]:
         
         if response.status_code == 200:
             data = response.json()
+            # Check if there are remaining credits
             limit = data.get('data', {}).get('limit')
             usage = data.get('data', {}).get('usage', 0)
             
@@ -303,72 +235,54 @@ def check_ai_credits(api_key: str) -> Tuple[bool, Optional[str]]:
         elif response.status_code == 401:
             return False, "Invalid API key"
         else:
-            return True, None
+            return True, None  # Assume has credits if we can't check
             
     except:
-        return True, None
+        return True, None  # Assume has credits if check fails
 
 
 def process_resume(text: str, api_key: Optional[str] = None) -> Dict[str, Any]:
     """
-    Process resume text with confidence scores:
-    - Always use AI for name extraction
-    - Use regex for email (always)
-    - Use regex + AI validation for phone numbers
+    Process resume text: try regex first, fallback to AI if needed.
+    If regex returns None (not found), try AI extraction.
+    If AI also fails, return None (displayed as "No text").
+    
+    Args:
+        text: Resume text
+        api_key: Optional OpenRouter API key for AI fallback
+        
+    Returns:
+        Dictionary with extraction results and metadata
     """
     result = {
         'name': None,
         'email': None,
         'phone': None,
         'ai_used': False,
-        'error': None,
-        'confidence': {
-            'name': 0.0,
-            'email': 0.0,
-            'phone': 0.0
-        },
-        'methods': {
-            'name': 'none',
-            'email': 'regex',
-            'phone': 'none'
-        }
+        'error': None
     }
     
-    email, email_confidence, email_method = extract_email(text)
-    result['email'] = email
-    result['confidence']['email'] = email_confidence
-    result['methods']['email'] = email_method
+    # Step 1: Try regex extraction
+    regex_result = extract_with_regex(text)
+    result.update(regex_result)
     
-    regex_phone, phone_confidence, phone_method = extract_phone_with_context(text)
+    # Step 2: Check which fields are missing (regex returned None)
+    missing_fields = [k for k in ['name', 'email', 'phone'] if result[k] is None]
     
-    if api_key:
-        name, name_confidence, name_success, name_error = extract_name_with_ai(text, api_key)
-        if name_success:
-            result['name'] = name
-            result['confidence']['name'] = name_confidence
-            result['methods']['name'] = 'ai'
-            result['ai_used'] = True
-        elif name_error and 'credit' in name_error.lower():
-            result['error'] = name_error
+    # Step 3: If any field is missing and we have API key, try AI fallback
+    if missing_fields and api_key:
+        ai_result, success, error = extract_with_ai(text, api_key, missing_fields)
         
-        phone, phone_conf, phone_ai_used, phone_error = extract_phone_with_ai(
-            text, api_key, regex_phone, phone_confidence
-        )
-        result['phone'] = phone
-        result['confidence']['phone'] = phone_conf
-        
-        if phone_ai_used:
-            result['methods']['phone'] = 'ai'
+        if success:
             result['ai_used'] = True
-        else:
-            result['methods']['phone'] = 'regex'
-            
-        if phone_error and not result['error']:
-            result['error'] = phone_error
-    else:
-        result['phone'] = regex_phone
-        result['confidence']['phone'] = phone_confidence
-        result['methods']['phone'] = phone_method
-        result['error'] = "No API key - using regex only"
+            # Fill in missing fields from AI (only if AI found something)
+            for field in missing_fields:
+                ai_value = ai_result.get(field)
+                if ai_value:
+                    result[field] = ai_value
+                # If AI also returns None/null, result[field] stays None
+                # This will be displayed as "No text" in the UI
+        elif error:
+            result['error'] = error
     
     return result
