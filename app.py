@@ -49,26 +49,7 @@ st.markdown("""
         font-size: 0.875rem;
         margin-bottom: 0.5rem;
     }
-    
-    .linktal-logo {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-    
-    .linktal-text {
-        color: #3b82f6;
-        font-size: 2rem;
-        font-weight: 700;
-    }
-    
-    .processing-status {
-        color: #3b82f6;
-        font-size: 1.25rem;
-        font-weight: 600;
-        margin-top: 1rem;
-    }
-    
+
     .stFileUploader {
         background: #1e293b;
         border-radius: 8px;
@@ -336,9 +317,9 @@ def render_header():
                 <circle cx="50" cy="50" r="45" fill="#3b82f6"/>
                 <text x="50" y="58" text-anchor="middle" fill="white" font-size="28" font-weight="bold">L</text>
             </svg>
-            <span class="linktal-text" style="display: inline-block; vertical-align: middle;">""</span>
+            <span class="linktal-text" style="display: inline-block; vertical-align: middle;"></span>
         </div>
-        <p class="processing-status" style="text-align: right;">""</p>
+        <p class="processing-status" style="text-align: right;"></p>
         """, unsafe_allow_html=True)
 
 
