@@ -42,7 +42,8 @@ SKIP_WORDS = {
     'objective', 'experience', 'education', 'skills', 'contact',
     'phone', 'email', 'address', 'mobile', 'tel', 'linkedin',
     'github', 'portfolio', 'website', 'references', 'personal',
-    'professional', 'career', 'work', 'employment', 'history'
+    'professional', 'career', 'work', 'employment', 'history', 'Certifications', 
+    'Backgrounds'
 }
 
 
