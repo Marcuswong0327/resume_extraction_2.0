@@ -6,7 +6,6 @@ import html
 
 from pdf_processor import extract_text_from_pdf
 from word_processor import extract_text_from_docx
-from text_processor import extract_text_from_txt, extract_text_from_rtf
 from ai_parser import process_resume, check_ai_credits
 from excel_exporter import export_to_excel, get_export_filename
 from extraction_logger import extraction_logger
@@ -220,10 +219,6 @@ def extract_text(file_bytes: bytes, file_type: str) -> str:
         return extract_text_from_pdf(file_bytes)
     elif file_type == 'docx':
         return extract_text_from_docx(file_bytes)
-    elif file_type == 'rtf':
-        return extract_text_from_rtf(file_bytes)
-    elif file_type == 'txt':
-        return extract_text_from_txt(file_bytes)
     else:
         raise Exception(f'Unsupported file format: {file_type}')
 
