@@ -124,13 +124,11 @@ st.markdown("""
         border-radius: 8px;
         padding: 0.5rem 1.5rem;
         font-weight: 600;
-        transition: all 0.3s ease;
     }
     
     .stButton > button:hover {
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        background: #334155;
         transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
     }
     
     /* Download button */
