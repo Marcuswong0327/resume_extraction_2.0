@@ -337,7 +337,7 @@ def main():
         
         uploaded_files = st.file_uploader(
             "Drag n Drop Files",
-            type=['pdf', 'docx'],
+            type= None,
             accept_multiple_files=True
         )
         
@@ -359,17 +359,27 @@ def main():
         # Process files when button clicked
         if process_btn and uploaded_files:
             progress_bar = st.progress(0, text="Processing files...")
+
+            unsupported_batch = []
             
             for idx, file in enumerate(uploaded_files):
                 progress = (idx + 1) / len(uploaded_files)
                 progress_bar.progress(progress, text=f"Processing {file.name}...")
                 
                 result = process_file(file, api_key)
+                if result.get('error') == 'Unsupported file format':
+                    unsupported_batch.append(file.name)
+                    
                 st.session_state.results.append(result)
             
             progress_bar.empty()
             st.success(f"✅ Processed {len(uploaded_files)} files!")
-            st.rerun()
+            
+            if unsupported_batch:
+                st.error(
+                    f"⚠️ **{len(unsupported_batch)} files were skipped due to unsupported format:**\n\n" + 
+                    "\n".join([f"- {name}" for name in unsupported_batch])
+                )
     
     # Results section
     st.markdown("---")
