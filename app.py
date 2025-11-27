@@ -336,7 +336,7 @@ def main():
         st.markdown("### 📁 Upload Resumes")
         
         uploaded_files = st.file_uploader(
-            "Drag n Drop Files",
+            "Drag n Drop",
             type= None,
             accept_multiple_files=True
         )
@@ -347,7 +347,6 @@ def main():
         with col_btn1:
             process_btn = st.button(
                 "Extract Data",
-                disabled=not uploaded_files,
                 use_container_width=True
             )
         
