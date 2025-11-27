@@ -4,4 +4,3 @@ openpyxl
 pdfplumber
 PyPDF2
 python-docx
-pdf2image
