@@ -197,7 +197,7 @@ def process_file(uploaded_file, api_key: str) -> Dict[str, Any]:
         if uploaded_file.name.lower().endswith('.pdf'):
             text = extract_text_from_pdf(file_bytes)
         elif uploaded_file.name.lower().endswith('.docx'):
-            text = extract_text_from_docx(file_bytes)
+            text = extract_text_with_headers(file_bytes)
         else:
             result['error'] = 'Unsupported file format'
             result['status'] = 'error'
