@@ -3,7 +3,7 @@ import os
 from typing import List, Dict, Any
 
 from pdf_processor import extract_text_from_pdf
-from word_processor import extract_text_from_docx
+from word_processor import extract_text_with_headers
 from ai_parser import process_resume, check_ai_available
 from excel_exporter import export_to_excel, get_export_filename
 
