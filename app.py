@@ -236,7 +236,7 @@ def render_header():
     """Render the application header."""
     st.markdown("""
     <div class="main-header">
-        <h1 class="main-title">📄 Resume Parser & Analyzer 2.0</h1>
+        <h1 class="main-title">📄 Resume Parser 1.0 (Contact Only) </h1>
     </div>
     """, unsafe_allow_html=True)
 
