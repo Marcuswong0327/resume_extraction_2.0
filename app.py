@@ -10,7 +10,7 @@ from excel_exporter import export_to_excel, get_export_filename
 
 # Page configuration
 st.set_page_config(
-    page_title="Resume Parser & Analyzer 2.0",
+    page_title="Resume Parser 1.0",
     page_icon="📌",
     layout="wide",
     initial_sidebar_state="collapsed"
